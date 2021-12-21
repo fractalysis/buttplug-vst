@@ -5,15 +5,19 @@ edition = "2018"
 authors = ["Fraccy (ssh)"]
 
 [dependencies]
-serde = "^1.0.130"
+serde = {version = "^1.0.130", default-features = false}
 buttplug = "^5.1.2"
 tokio = "^1.14.0"
 futures = "^0.3.18"
 log = "^0.4.14"
 log4rs = "^1.0.0"
+vst = "^0.2.1"
+tokio-tungstenite = "*"
+url = "*"
+time = "*"
 baseplug = { git = "https://github.com/wrl/baseplug.git", package = "baseplug" }
 
 [lib]
 name = "buttplug_monitor"
-path = "src/ButtplugMonitor.rs"
+path = "src/buttplug_bp.rs"
 crate-type = ["cdylib"]

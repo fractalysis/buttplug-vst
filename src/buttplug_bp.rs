@@ -1,0 +1,113 @@
+#![allow(incomplete_features)]
+#![feature(generic_associated_types)]
+//#![feature(async_closure)]
+//#![no_std]
+
+extern crate serde;
+extern crate baseplug;
+extern crate buttplug;
+
+//use core::panic::PanicInfo;
+use tokio::{self, sync::mpsc, runtime::Runtime};
+use serde::{Serialize, Deserialize};
+use baseplug::{
+    ProcessContext,
+    Plugin,
+};
+
+mod buttplug_client;
+
+/*struct ButtplugBuffer{
+    l: Vec<f32>,
+    r: Vec<f32>,
+}
+impl ButtplugBuffer{
+    fn new() -> ButtplugBuffer{
+        ButtplugBuffer{
+            l: Vec::new(),
+            r: Vec::new(),
+        }
+    }
+}
+unsafe impl Send for ButtplugBuffer {}*/
+
+/*#[panic_handler]
+fn on_panic(info: &PanicInfo) -> ! {
+
+    // logs "panicked at '$reason', src/main.rs:27:4" to the host stderr
+    log::info!("{}", info);
+
+    loop {}
+}*/
+
+
+baseplug::model! {
+    #[derive(Debug, Serialize, Deserialize)]
+    struct ButtplugModel {
+        #[model(min = -90.0, max = 3.0)]
+        #[parameter(name = "gain", unit = "Decibels",
+            gradient = "Power(0.15)")]
+        gain: f32,
+    }
+}
+
+/*impl ButtplugModel {
+    const SEND_RATE: f32 = 20.0; // Per second
+}*/
+
+impl Default for ButtplugModel {
+
+    fn default() -> Self {
+        Self {
+            // "gain" is converted from dB to coefficient in the parameter handling code,
+            // so in the model here it's a coeff.
+            // -0dB == 1.0
+            gain: 0.0,
+        }
+    }
+}
+
+struct ButtplugMonitor {
+    tkrt: Runtime,
+    bpio_sender: mpsc::Sender<f32>,
+}
+
+impl Plugin for ButtplugMonitor {
+    const NAME: &'static str = "Buttplug Monitor";
+    const PRODUCT: &'static str = "Buttplug Monitor";
+    const VENDOR: &'static str = "Fractalysoft";
+
+    const INPUT_CHANNELS: usize = 2;
+    const OUTPUT_CHANNELS: usize = 2;
+
+    type Model = ButtplugModel;
+
+    #[inline]
+    fn new(_sample_rate: f32, _model: &ButtplugModel) -> Self {
+        
+        let (tkrt, sender) = buttplug_client::start_buttplug_thread(20.0, 72000.0)
+            .expect("Could not start Buttplug thread");
+
+        ButtplugMonitor {
+            tkrt,
+            bpio_sender: sender,
+        }
+    }
+
+    #[inline]
+    fn process(&mut self, _model: &ButtplugModelProcess, ctx: &mut ProcessContext<Self>) {
+        let input = &ctx.inputs[0].buffers;
+        let output = &mut ctx.outputs[0].buffers;
+
+        for i in 0..ctx.nframes {
+            output[0][i] = input[0][i];
+            output[1][i] = input[1][i];
+
+            // Will not block
+            let _ = self.bpio_sender.try_send(input[0][i]);
+            let _ = self.bpio_sender.try_send(input[1][i]);
+        }
+    }
+}
+
+baseplug::vst2!(ButtplugMonitor, b"FRbm");

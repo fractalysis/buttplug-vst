@@ -1,12 +1,31 @@
-import logging
-from flask import Flask, request
-app = Flask(__name__)
+#!/usr/bin/env python
 
-@app.route('/', methods=['POST', 'GET'], defaults={'path': ''})
-@app.route('/<path:path>', methods=['POST', 'GET'])
-def index(path):
-    print("HTTP {} to URL /{} received JSON {}".format(request.method, path, request.get_json()))
-    return "True"
+import asyncio
+import websockets
+import signal
+from signal import SIGINT, SIGTERM
 
-if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=12345, debug=True)
+async def handler(websocket):
+    while True:
+        try:
+            message = await websocket.recv()
+            print(message)
+        except websockets.ConnectionClosedOK:
+            print("Connection closed")
+            break
+        except websockets.ConnectionClosedError:
+            print("Connection closed forcibly")
+            break
+        except Exception as e:
+            print(e)
+            break
+
+
+async def main():
+    async with websockets.serve(handler, "", 12345):
+        print("Initialized.")
+        await asyncio.Future()  # run forever
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
