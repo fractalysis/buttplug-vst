@@ -116,6 +116,10 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>){
 
     //Store the latest device here, assume it vibrates
     let mut device: Option<Arc<ButtplugClientDevice>> = None;
+    for d in client.devices().iter() {
+        log::info!("Device found: {}", d.name);
+        device = Some(d.clone());
+    }
 
     let mut event_stream = client.event_stream();
     loop{
