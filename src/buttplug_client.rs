@@ -16,17 +16,16 @@ use log4rs::{
     config::{Appender, Config, Root}
 };
 use buttplug::{
-    client::{ButtplugClient, ButtplugClientEvent},
+    client::{ButtplugClient, ButtplugClientEvent, ButtplugClientDevice, ButtplugClientDeviceMessageType, VibrateCommand},
     connector::{ButtplugRemoteClientConnector, ButtplugWebsocketClientTransport},
     core::messages::serializer::ButtplugClientJSONSerializer,
 };
+use std::sync::Arc;
 
 //Debug
 use url::Url;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::SinkExt;
-
-use std::error::Error;
 
 
 pub fn start_buttplug_thread(send_rate: f32, sample_rate: f32) -> Result<(Runtime, mpsc::Sender<f32>), ()>{
@@ -109,7 +108,14 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>){
         return;
     }
     log::info!("Connected: {}", client.connected());
-    
+
+    if let Err(err) = client.start_scanning().await {
+        log::info!("Client errored when starting device scan: {}", err);
+        return;
+    }
+
+    //Store the latest device here, assume it vibrates
+    let mut device: Option<Arc<ButtplugClientDevice>> = None;
 
     let mut event_stream = client.event_stream();
     loop{
@@ -121,7 +127,31 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>){
                             log::info!("Server disconnected");
                             break;
                         },
-                        _ => {}
+
+                        ButtplugClientEvent::DeviceAdded(d) => {
+                            if d.allowed_messages
+                                .contains_key(&ButtplugClientDeviceMessageType::VibrateCmd)
+                            {
+                                log::info!("Vibrating device added: {}", d.name);
+                                device = Some(d.clone());
+                            }
+                            else{
+                                log::info!("Non-vibrating device added, ignoring: {}", d.name);
+                            }
+                        },
+
+                        ButtplugClientEvent::DeviceRemoved(d) => {
+                            log::info!("Device removed: {}", d.name);
+                            if let Some(dev) = &device {
+                                if dev.name == d.name {
+                                    device = None;
+                                }
+                            }
+                        },
+
+                        _ => {
+                            log::info!("Intiface event: {:?}", event);
+                        }
                     }
                     None => {
                         log::info!("Server disconnected ungracefully");
@@ -134,7 +164,14 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>){
             maybe_msg = receiver.recv() => {
                 match maybe_msg {
                     Some(msg) => {
-
+                        match &device {
+                            Some(d) => {
+                                if let Err(e) = d.vibrate(VibrateCommand::Speed(f64::from(msg))).await {
+                                    log::info!("Error sending message: {}", e);
+                                }
+                            }
+                            None => {} // Don't log, this happens many times per second
+                        }
                     }
                     None => {
                         log::info!("Sender dropped, killing buttplug thread");

@@ -17,29 +17,6 @@ use baseplug::{
 
 mod buttplug_client;
 
-/*struct ButtplugBuffer{
-    l: Vec<f32>,
-    r: Vec<f32>,
-}
-impl ButtplugBuffer{
-    fn new() -> ButtplugBuffer{
-        ButtplugBuffer{
-            l: Vec::new(),
-            r: Vec::new(),
-        }
-    }
-}
-unsafe impl Send for ButtplugBuffer {}*/
-
-/*#[panic_handler]
-fn on_panic(info: &PanicInfo) -> ! {
-
-    // logs "panicked at '$reason', src/main.rs:27:4" to the host stderr
-    log::info!("{}", info);
-
-    loop {}
-}*/
-
 
 baseplug::model! {
     #[derive(Debug, Serialize, Deserialize)]
@@ -102,11 +79,12 @@ impl Plugin for ButtplugMonitor {
         for i in 0..ctx.nframes {
             output[0][i] = input[0][i];
             output[1][i] = input[1][i];
-
-            // Will not block
-            let _ = self.bpio_sender.try_send(input[0][i]);
-            let _ = self.bpio_sender.try_send(input[1][i]);
         }
+
+        // Will not block
+        // DEBUG: change to RMS please
+        let _ = self.bpio_sender.try_send(input[0][0].abs() );
+        let _ = self.bpio_sender.try_send(input[1][0].abs() );
     }
 }
 
