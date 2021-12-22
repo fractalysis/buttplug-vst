@@ -62,7 +62,7 @@ impl Plugin for ButtplugMonitor {
     #[inline]
     fn new(_sample_rate: f32, _model: &ButtplugModel) -> Self {
         
-        let (tkrt, sender) = buttplug_client::start_buttplug_thread(20.0, 72000.0)
+        let (tkrt, sender) = buttplug_client::start_buttplug_thread(20.0)
             .expect("Could not start Buttplug thread");
 
         ButtplugMonitor {
@@ -76,15 +76,19 @@ impl Plugin for ButtplugMonitor {
         let input = &ctx.inputs[0].buffers;
         let output = &mut ctx.outputs[0].buffers;
 
+        let mut frame_rms: f32 = 0.0;
         for i in 0..ctx.nframes {
             output[0][i] = input[0][i];
             output[1][i] = input[1][i];
+
+            // RMS
+            frame_rms += (input[0][i] + input[1][i]) / 2.0;
         }
+        frame_rms = frame_rms / ctx.nframes as f32;
 
         // Will not block
         // DEBUG: change to RMS please
-        let _ = self.bpio_sender.try_send(input[0][0].abs() );
-        let _ = self.bpio_sender.try_send(input[1][0].abs() );
+        let _ = self.bpio_sender.try_send(frame_rms );
     }
 }
 

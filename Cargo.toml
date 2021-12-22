@@ -11,10 +11,9 @@ tokio = "^1.14.0"
 futures = "^0.3.18"
 log = "^0.4.14"
 log4rs = "^1.0.0"
-vst = "^0.2.1"
 tokio-tungstenite = "*"
 url = "*"
-time = "*"
+tokio-timer = "*"
 baseplug = { git = "https://github.com/wrl/baseplug.git", package = "baseplug" }
 
 [lib]

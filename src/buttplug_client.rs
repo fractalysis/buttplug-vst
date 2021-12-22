@@ -6,7 +6,9 @@ extern crate buttplug;
 use tokio::{
     self,
     sync::mpsc,
-    runtime::Runtime
+    sync::mpsc::error::TryRecvError,
+    runtime::Runtime,
+    time,
 };
 use futures::StreamExt;
 use log::LevelFilter;
@@ -28,7 +30,7 @@ use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::SinkExt;
 
 
-pub fn start_buttplug_thread(send_rate: f32, sample_rate: f32) -> Result<(Runtime, mpsc::Sender<f32>), ()>{
+pub fn start_buttplug_thread(send_rate: f32) -> Result<(Runtime, mpsc::Sender<f32>), ()>{
     //Enable logging
     let logfile = match FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
@@ -54,7 +56,7 @@ pub fn start_buttplug_thread(send_rate: f32, sample_rate: f32) -> Result<(Runtim
     log::info!("Logging enabled"); // For some reason this runs 4 times with baseplug
 
 
-    let buffer_size = (2.0*sample_rate/send_rate).ceil() as usize; //Should get sample rate instead
+    let buffer_size = 1 as usize;
     let (sender, receiver): (mpsc::Sender<f32>, mpsc::Receiver<f32>) = mpsc::channel( buffer_size );
 
     let tkrt = match Runtime::new() {
@@ -66,7 +68,7 @@ pub fn start_buttplug_thread(send_rate: f32, sample_rate: f32) -> Result<(Runtim
     };
 
     tkrt.spawn(async move {
-        buttplug_thread(receiver).await;
+        buttplug_thread(receiver, send_rate).await;
         //websocket_test_thread().await;
     });
     log::info!("Buttplug thread spawned.");
@@ -92,7 +94,7 @@ async fn websocket_test_thread() {
     }
 }
 
-async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>){
+async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32){
     
     let connector = ButtplugRemoteClientConnector::<
             ButtplugWebsocketClientTransport,
@@ -120,6 +122,9 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>){
         log::info!("Device found: {}", d.name);
         device = Some(d.clone());
     }
+
+    //Begin processing audio on an interval
+    let mut audio_interval = time::interval(std::time::Duration::from_millis((1000.0 / send_rate).round() as u64));
 
     let mut event_stream = client.event_stream();
     loop{
@@ -165,7 +170,28 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>){
                     
             }
 
-            maybe_msg = receiver.recv() => {
+            _ = audio_interval.tick() => {
+                match receiver.try_recv() {
+                    Ok(msg) => {
+                        if let Some(dev) = &device {
+                            if let Err(e) = dev.vibrate(VibrateCommand::Speed(f64::from(msg))).await {
+                                log::info!("Error sending vibrate command: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        if e == TryRecvError::Empty {
+                            log::info!("Sound queue was empty, continuing");
+                        }
+                        else if e == TryRecvError::Disconnected {
+                            log::info!("Sender disconnected, exiting");
+                            break;
+                        }
+                    }
+                }
+            }
+
+            /*maybe_msg = receiver.recv() => {
                 match maybe_msg {
                     Some(msg) => {
                         match &device {
@@ -182,7 +208,7 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>){
                         break;
                     }
                 }
-            }
+            }*/
         }
     }
 }
