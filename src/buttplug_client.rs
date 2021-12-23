@@ -3,38 +3,35 @@
 
 extern crate buttplug;
 
-use tokio::{
-    self,
-    sync::mpsc,
-    sync::mpsc::error::TryRecvError,
-    runtime::Runtime,
-    time,
+use buttplug::{
+    client::{
+        ButtplugClient, ButtplugClientDevice, ButtplugClientDeviceMessageType, ButtplugClientEvent,
+        VibrateCommand,
+    },
+    connector::{ButtplugRemoteClientConnector, ButtplugWebsocketClientTransport},
+    core::messages::serializer::ButtplugClientJSONSerializer,
 };
 use futures::StreamExt;
 use log::LevelFilter;
 use log4rs::{
     append::file::FileAppender,
+    config::{Appender, Config, Root},
     encode::pattern::PatternEncoder,
-    config::{Appender, Config, Root}
-};
-use buttplug::{
-    client::{ButtplugClient, ButtplugClientEvent, ButtplugClientDevice, ButtplugClientDeviceMessageType, VibrateCommand},
-    connector::{ButtplugRemoteClientConnector, ButtplugWebsocketClientTransport},
-    core::messages::serializer::ButtplugClientJSONSerializer,
 };
 use std::sync::Arc;
+use tokio::{self, runtime::Runtime, sync::mpsc, sync::mpsc::error::TryRecvError, time};
 
 //Debug
-use url::Url;
-use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 use futures::SinkExt;
+use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
+use url::Url;
 
-
-pub fn start_buttplug_thread(send_rate: f32) -> Result<(Runtime, mpsc::Sender<f32>), ()>{
+pub fn start_buttplug_thread(send_rate: f32) -> Result<(Runtime, mpsc::Sender<f32>), ()> {
     //Enable logging
     let logfile = match FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
-        .build("E:/Users/facade/Documents/VSTs/logs/buttplug_monitor.log"){
+        .build("E:/Users/facade/Documents/VSTs/logs/buttplug_monitor.log")
+    {
         Ok(logfile) => logfile,
         Err(e) => {
             log::info!("{}", e);
@@ -43,9 +40,8 @@ pub fn start_buttplug_thread(send_rate: f32) -> Result<(Runtime, mpsc::Sender<f3
     };
     let config = match Config::builder()
         .appender(Appender::builder().build("logfile", Box::new(logfile)))
-        .build(Root::builder()
-            .appender("logfile")
-            .build(LevelFilter::Info)) {
+        .build(Root::builder().appender("logfile").build(LevelFilter::Info))
+    {
         Ok(c) => c,
         Err(e) => {
             log::info!("{}", e);
@@ -55,9 +51,8 @@ pub fn start_buttplug_thread(send_rate: f32) -> Result<(Runtime, mpsc::Sender<f3
     let _ = log4rs::init_config(config);
     log::info!("Logging enabled"); // For some reason this runs 4 times with baseplug
 
-
-    let buffer_size = 1 as usize;
-    let (sender, receiver): (mpsc::Sender<f32>, mpsc::Receiver<f32>) = mpsc::channel( buffer_size );
+    let buffer_size = (100.0 / send_rate) as usize; // Should be big enough
+    let (sender, receiver): (mpsc::Sender<f32>, mpsc::Receiver<f32>) = mpsc::channel(buffer_size);
 
     let tkrt = match Runtime::new() {
         Ok(rt) => rt,
@@ -76,6 +71,8 @@ pub fn start_buttplug_thread(send_rate: f32) -> Result<(Runtime, mpsc::Sender<f3
     Ok((tkrt, sender))
 }
 
+// For debugging the thread and whether it can network
+#[allow(dead_code)]
 async fn websocket_test_thread() {
     let url = Url::parse("ws://localhost:12345/").unwrap();
     let (ws_stream, _) = match connect_async(url).await {
@@ -90,22 +87,22 @@ async fn websocket_test_thread() {
 
     match write.send(Message::Text("Hello, world!".to_string())).await {
         Ok(_) => log::info!("Sent message"),
-        Err(e) => log::info!("{}", e)
+        Err(e) => log::info!("{}", e),
     }
 }
 
-async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32){
-    
+async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32) {
     let connector = ButtplugRemoteClientConnector::<
-            ButtplugWebsocketClientTransport,
-            ButtplugClientJSONSerializer,
-        >::new(ButtplugWebsocketClientTransport::new_insecure_connector(
-            "ws://127.0.0.1:12345",
-        ));
+        ButtplugWebsocketClientTransport,
+        ButtplugClientJSONSerializer,
+    >::new(ButtplugWebsocketClientTransport::new_insecure_connector(
+        "ws://127.0.0.1:12345",
+    ));
     let client = ButtplugClient::new("Buttplug VST Client");
     log::info!("Starting Buttplug connection thread...");
 
-    if let Err(e) = client.connect(connector).await { // PANICS?
+    if let Err(e) = client.connect(connector).await {
+        // PANICS?
         log::info!("Error connecting to Buttplug server: {}", e);
         return;
     }
@@ -116,7 +113,7 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32){
         return;
     }
 
-    //Store the latest device here, assume it vibrates
+    //Store the latest device here, assume it vibrates, None if there are no devices connected
     let mut device: Option<Arc<ButtplugClientDevice>> = None;
     for d in client.devices().iter() {
         log::info!("Device found: {}", d.name);
@@ -124,11 +121,15 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32){
     }
 
     //Begin processing audio on an interval
-    let mut audio_interval = time::interval(std::time::Duration::from_millis((1000.0 / send_rate).round() as u64));
+    let mut audio_interval = time::interval(std::time::Duration::from_millis(
+        (1000.0 / send_rate).round() as u64,
+    ));
 
     let mut event_stream = client.event_stream();
-    loop{
-        tokio::select!{
+    loop {
+        tokio::select! {
+
+            // Buttplug server message events
             maybe_event = event_stream.next() => {
                 match maybe_event {
                     Some(event) => match event {
@@ -152,7 +153,7 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32){
                         ButtplugClientEvent::DeviceRemoved(d) => {
                             log::info!("Device removed: {}", d.name);
                             if let Some(dev) = &device {
-                                if dev.name == d.name {
+                                if d == *dev {
                                     device = None;
                                 }
                             }
@@ -167,9 +168,10 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32){
                         break;
                     }
                 }
-                    
+
             }
 
+            // A timer event that receives audio
             _ = audio_interval.tick() => {
                 match receiver.try_recv() {
                     Ok(msg) => {
@@ -181,7 +183,7 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32){
                     }
                     Err(e) => {
                         if e == TryRecvError::Empty {
-                            log::info!("Sound queue was empty, continuing");
+                            //log::info!("Sound queue was empty, continuing");
                         }
                         else if e == TryRecvError::Disconnected {
                             log::info!("Sender disconnected, exiting");
@@ -191,24 +193,6 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32){
                 }
             }
 
-            /*maybe_msg = receiver.recv() => {
-                match maybe_msg {
-                    Some(msg) => {
-                        match &device {
-                            Some(d) => {
-                                if let Err(e) = d.vibrate(VibrateCommand::Speed(f64::from(msg))).await {
-                                    log::info!("Error sending message: {}", e);
-                                }
-                            }
-                            None => {} // Don't log, this happens many times per second
-                        }
-                    }
-                    None => {
-                        log::info!("Sender dropped, killing buttplug thread");
-                        break;
-                    }
-                }
-            }*/
         }
     }
 }

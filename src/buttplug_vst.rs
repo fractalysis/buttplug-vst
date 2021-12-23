@@ -1,4 +1,4 @@
-// author: doomy <alexander@resamplr.com>
+// based on: doomy <alexander@resamplr.com>
 
 #[macro_use]
 extern crate vst;

@@ -3,20 +3,18 @@
 //#![feature(async_closure)]
 //#![no_std]
 
-extern crate serde;
 extern crate baseplug;
 extern crate buttplug;
+extern crate serde;
 
 //use core::panic::PanicInfo;
-use tokio::{self, sync::mpsc, runtime::Runtime};
-use serde::{Serialize, Deserialize};
-use baseplug::{
-    ProcessContext,
-    Plugin,
-};
+use baseplug::{Plugin, ProcessContext};
+use serde::{Deserialize, Serialize};
+use tokio::{self, runtime::Runtime, sync::mpsc};
+use rustfft::{FftPlanner, num_complex::Complex32};
+
 
 mod buttplug_client;
-
 
 baseplug::model! {
     #[derive(Debug, Serialize, Deserialize)]
@@ -33,7 +31,6 @@ baseplug::model! {
 }*/
 
 impl Default for ButtplugModel {
-
     fn default() -> Self {
         Self {
             // "gain" is converted from dB to coefficient in the parameter handling code,
@@ -44,6 +41,7 @@ impl Default for ButtplugModel {
     }
 }
 
+#[allow(dead_code)] // Runtime is never accessed, storing it so it doesn't delete my futures >:
 struct ButtplugMonitor {
     tkrt: Runtime,
     bpio_sender: mpsc::Sender<f32>,
@@ -61,9 +59,8 @@ impl Plugin for ButtplugMonitor {
 
     #[inline]
     fn new(_sample_rate: f32, _model: &ButtplugModel) -> Self {
-        
-        let (tkrt, sender) = buttplug_client::start_buttplug_thread(20.0)
-            .expect("Could not start Buttplug thread");
+        let (tkrt, sender) =
+            buttplug_client::start_buttplug_thread(20.0).expect("Could not start Buttplug thread");
 
         ButtplugMonitor {
             tkrt,
@@ -76,19 +73,35 @@ impl Plugin for ButtplugMonitor {
         let input = &ctx.inputs[0].buffers;
         let output = &mut ctx.outputs[0].buffers;
 
-        let mut frame_rms: f32 = 0.0;
-        for i in 0..ctx.nframes {
-            output[0][i] = input[0][i];
-            output[1][i] = input[1][i];
+        //let num_chunks = 2;
 
-            // RMS
-            frame_rms += (input[0][i] + input[1][i]) / 2.0;
+        //let chunks = [0..ctx.nframes / 2, ctx.nframes / 2..ctx.nframes];
+        let chunks = [0..ctx.nframes];
+
+        for chunk in chunks.iter() {
+
+            for c in 0..1 {
+                // v This vec! call has a malloc?, get rid of it
+                let mut b = vec![Complex32{re: 0.0, im: 0.0}; chunk.len()];
+
+                //Copy input to output, and also the complex array
+                for i in chunk.clone() {
+                    output[c][i] = input[c][i];
+
+                    b[i-chunk.start].re = input[c][i];
+                }
+
+                FftPlanner::new().plan_fft_forward(ctx.nframes).process(&mut b);
+                
+                // Get the max amplitude of the frequency area we're interested in
+                let low_freq = 20.0f32;
+                let high_freq = 50.0f32;
+            }
+
+            // Will not block
+            let _ = self.bpio_sender.try_send(input[0][0]);
+
         }
-        frame_rms = frame_rms / ctx.nframes as f32;
-
-        // Will not block
-        // DEBUG: change to RMS please
-        let _ = self.bpio_sender.try_send(frame_rms );
     }
 }
 
