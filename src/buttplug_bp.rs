@@ -7,12 +7,14 @@ extern crate baseplug;
 extern crate buttplug;
 extern crate serde;
 
-//use core::panic::PanicInfo;
+use std::sync::{atomic, Arc};
 use baseplug::{Plugin, ProcessContext};
 use serde::{Deserialize, Serialize};
 use tokio::{self, runtime::Runtime, sync::mpsc};
 use rustfft::{FftPlanner, num_complex::Complex32};
 
+const FFT_SIZE: usize = 4096;
+const MAX_CHANNELS: usize = 2;
 
 mod buttplug_client;
 
@@ -45,6 +47,10 @@ impl Default for ButtplugModel {
 struct ButtplugMonitor {
     tkrt: Runtime,
     bpio_sender: mpsc::Sender<f32>,
+
+    // FFT stuff
+    fft_buffer: [Complex32; FFT_SIZE],
+    current_fft: atomic::AtomicUsize,
 }
 
 impl Plugin for ButtplugMonitor {
@@ -65,6 +71,9 @@ impl Plugin for ButtplugMonitor {
         ButtplugMonitor {
             tkrt,
             bpio_sender: sender,
+
+            fft_buffer: [Complex32::new(0.0, 0.0); FFT_SIZE],
+            current_fft: atomic::AtomicUsize::new(0),
         }
     }
 
@@ -73,35 +82,35 @@ impl Plugin for ButtplugMonitor {
         let input = &ctx.inputs[0].buffers;
         let output = &mut ctx.outputs[0].buffers;
 
-        //let num_chunks = 2;
+        // If the complex buffer will be overfilled after this, do the FFT
+        if self.current_fft.load(atomic::Ordering::Relaxed) + ctx.nframes >= FFT_SIZE {
+            FftPlanner::new().plan_fft_forward(FFT_SIZE).process(&mut self.fft_buffer);
 
-        //let chunks = [0..ctx.nframes / 2, ctx.nframes / 2..ctx.nframes];
-        let chunks = [0..ctx.nframes];
+            // Get the max amplitude of the frequency area we're interested in
+            //let low_freq = 20.0f32;
+            //let high_freq = 50.0f32;
 
-        for chunk in chunks.iter() {
-
-            for c in 0..1 {
-                // v This vec! call has a malloc?, get rid of it
-                let mut b = vec![Complex32{re: 0.0, im: 0.0}; chunk.len()];
-
-                //Copy input to output, and also the complex array
-                for i in chunk.clone() {
-                    output[c][i] = input[c][i];
-
-                    b[i-chunk.start].re = input[c][i];
-                }
-
-                FftPlanner::new().plan_fft_forward(ctx.nframes).process(&mut b);
-                
-                // Get the max amplitude of the frequency area we're interested in
-                let low_freq = 20.0f32;
-                let high_freq = 50.0f32;
-            }
-
-            // Will not block
-            let _ = self.bpio_sender.try_send(input[0][0]);
-
+            self.current_fft.store(0, atomic::Ordering::Relaxed);
         }
+
+        // Store in the FFT buffer for later
+        let starting_index = self.current_fft.load(atomic::Ordering::Relaxed);
+
+        for i in 0..ctx.nframes {
+            output[0][i] = input[0][i];
+            output[1][i] = input[1][i];
+
+            //Store in the FFT buffer
+            self.fft_buffer[starting_index + i].re = input[0][i] + input[1][i] / 2.0f32;
+        }
+
+        // Increment the current FFT index
+        self.current_fft.fetch_add(ctx.nframes, atomic::Ordering::Relaxed);
+            
+
+        // Will not block
+        let _ = self.bpio_sender.try_send(input[0][0]);
+
     }
 }
 
