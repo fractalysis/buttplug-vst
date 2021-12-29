@@ -183,7 +183,7 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32) {
                     }
                     Err(e) => {
                         if e == TryRecvError::Empty {
-                            log::info!("Sound queue was empty, continuing");
+                            //log::info!("Sound queue was empty, continuing");
                         }
                         else if e == TryRecvError::Disconnected {
                             log::info!("Sender disconnected, exiting");

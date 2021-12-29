@@ -83,12 +83,31 @@ impl Plugin for ButtplugMonitor {
         let output = &mut ctx.outputs[0].buffers;
 
         // If the complex buffer will be overfilled after this, do the FFT
-        if self.current_fft.load(atomic::Ordering::Relaxed) + ctx.nframes >= FFT_SIZE {
+        if self.current_fft.load(atomic::Ordering::Relaxed) + ctx.nframes > FFT_SIZE {
             FftPlanner::new().plan_fft_forward(FFT_SIZE).process(&mut self.fft_buffer);
 
             // Get the max amplitude of the frequency area we're interested in
             //let low_freq = 20.0f32;
             //let high_freq = 50.0f32;
+
+            let mut max_amplitude = 0.0f32;
+            let mut max_index = 0;
+            for i in 1..20 { //Check the bins from 1 (10hz) to 20 (200hz)
+                let amplitude = self.fft_buffer[i].norm();
+                if amplitude > max_amplitude {
+                    max_amplitude = amplitude;
+                    max_index = i;
+                }
+            }
+
+            //log::info!("Max amplitude: {} at {}", max_amplitude, max_index);
+
+            if max_index > 5 { // If it's not a bass frequency (>50hz), silence it
+                max_index = 0;
+            }
+
+            // Will not block
+            let _ = self.bpio_sender.try_send(max_index as f32 / 5.0f32);
 
             self.current_fft.store(0, atomic::Ordering::Relaxed);
         }
@@ -102,15 +121,15 @@ impl Plugin for ButtplugMonitor {
 
             //Store in the FFT buffer
             self.fft_buffer[starting_index + i].re = input[0][i] + input[1][i] / 2.0f32;
+            self.fft_buffer[starting_index + i].im = 0.0f32;
         }
 
         // Increment the current FFT index
         self.current_fft.fetch_add(ctx.nframes, atomic::Ordering::Relaxed);
-            
 
-        // Will not block
-        let _ = self.bpio_sender.try_send(input[0][0]);
-
+        //let fft_index = self.current_fft.load(atomic::Ordering::Relaxed);
+        //log::info!("FFT index: {}, should've written {} samples", fft_index, ctx.nframes);
+        
     }
 }
 
