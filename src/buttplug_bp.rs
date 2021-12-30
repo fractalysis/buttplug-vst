@@ -7,14 +7,14 @@ extern crate baseplug;
 extern crate buttplug;
 extern crate serde;
 
-use std::sync::{atomic, Arc};
+use std::sync::atomic;
 use baseplug::{Plugin, ProcessContext};
 use serde::{Deserialize, Serialize};
 use tokio::{self, runtime::Runtime, sync::mpsc};
 use rustfft::{FftPlanner, num_complex::Complex32};
 
 const FFT_SIZE: usize = 4096;
-const MAX_CHANNELS: usize = 2;
+//const MAX_CHANNELS: usize = 2;
 
 mod buttplug_client;
 
@@ -22,9 +22,19 @@ baseplug::model! {
     #[derive(Debug, Serialize, Deserialize)]
     struct ButtplugModel {
         #[model(min = -90.0, max = 3.0)]
-        #[parameter(name = "gain", unit = "Decibels",
+        #[parameter(name = "gate cutoff", unit = "Decibels",
             gradient = "Power(0.15)")]
-        gain: f32,
+        bass_cutoff: f32,
+
+        #[model(min = 0.0, max = 200.0)]
+        #[parameter(name = "low frequency", unit = "Generic",
+            gradient = "Power(2.0)")]
+        low_freq: f32,
+
+        #[model(min = 0.0, max = 200.0)]
+        #[parameter(name = "high frequency", unit = "Generic",
+            gradient = "Power(2.0)")]
+        high_freq: f32,
     }
 }
 
@@ -35,10 +45,12 @@ baseplug::model! {
 impl Default for ButtplugModel {
     fn default() -> Self {
         Self {
-            // "gain" is converted from dB to coefficient in the parameter handling code,
+            // "bass_cutoff" is converted from dB to coefficient in the parameter handling code,
             // so in the model here it's a coeff.
             // -0dB == 1.0
-            gain: 0.0,
+            bass_cutoff: 0.5f32,
+            low_freq: 20.0f32,
+            high_freq: 60.0f32,
         }
     }
 }
@@ -78,36 +90,51 @@ impl Plugin for ButtplugMonitor {
     }
 
     #[inline]
-    fn process(&mut self, _model: &ButtplugModelProcess, ctx: &mut ProcessContext<Self>) {
+    fn process(&mut self, model: &ButtplugModelProcess, ctx: &mut ProcessContext<Self>) {
         let input = &ctx.inputs[0].buffers;
         let output = &mut ctx.outputs[0].buffers;
 
         // If the complex buffer will be overfilled after this, do the FFT
         if self.current_fft.load(atomic::Ordering::Relaxed) + ctx.nframes > FFT_SIZE {
+            // v Give this a scratch buffer so it doesn't have to reallocate every time
             FftPlanner::new().plan_fft_forward(FFT_SIZE).process(&mut self.fft_buffer);
 
-            // Get the max amplitude of the frequency area we're interested in
-            //let low_freq = 20.0f32;
-            //let high_freq = 50.0f32;
+            // Get the bins we're interested in
+            let low_freq = model.low_freq[ctx.nframes-1];
+            let high_freq = model.high_freq[ctx.nframes-1];
+            let low_bin = (low_freq / ctx.sample_rate * FFT_SIZE as f32).round() as usize;
+            let high_bin = (high_freq / ctx.sample_rate * FFT_SIZE as f32).round() as usize;
 
+            //log::info!("Low bin: {}    High bin: {}", low_bin, high_bin);
+
+            // Get the highest amplitude so we can normalize the FFT
             let mut max_amplitude = 0.0f32;
-            let mut max_index = 0;
-            for i in 1..20 { //Check the bins from 1 (10hz) to 20 (200hz)
+            for i in 1..FFT_SIZE/2 {
                 let amplitude = self.fft_buffer[i].norm();
                 if amplitude > max_amplitude {
                     max_amplitude = amplitude;
-                    max_index = i;
                 }
             }
 
-            //log::info!("Max amplitude: {} at {}", max_amplitude, max_index);
+            // Get the highest amplitude of all the bins we care about
+            let mut bass_amplitude = 0.0f32;
+            let mut bass_index = 0;
+            for i in low_bin..high_bin {
+                let amplitude = self.fft_buffer[i].norm();
+                if amplitude > bass_amplitude {
+                    bass_amplitude = amplitude;
+                    bass_index = i;
+                }
+            }
 
-            if max_index > 5 { // If it's not a bass frequency (>50hz), silence it
-                max_index = 0;
+            //log::info!("Max amplitude: {} at {}", max_amplitude / ctx.nframes, max_index);
+
+            if bass_amplitude / max_amplitude < model.bass_cutoff[ctx.nframes-1] { // Silence the bass if it is too relatively quiet
+                bass_index = 0;
             }
 
             // Will not block
-            let _ = self.bpio_sender.try_send(max_index as f32 / 5.0f32);
+            let _ = self.bpio_sender.try_send(bass_index as f32 / 5.0f32);
 
             self.current_fft.store(0, atomic::Ordering::Relaxed);
         }
