@@ -128,13 +128,25 @@ impl Plugin for ButtplugMonitor {
             }
 
             //log::info!("Max amplitude: {} at {}", max_amplitude / ctx.nframes, max_index);
-
-            if bass_amplitude / max_amplitude < model.bass_cutoff[ctx.nframes-1] { // Silence the bass if it is too relatively quiet
-                bass_index = 0;
+            
+            // Way too much code just to put the vibration intensity into (0, 1) with 0.05 being lowest
+            let bp_max = high_bin as i32 - low_bin as i32;
+            let bp_level;
+            if bass_amplitude / max_amplitude < 0.5f32 { // Silence the bass if it is too relatively quiet
+                bp_level = 0.0f32;
+            }
+            else if (bass_index as i32 - low_bin as i32) < 0 {
+                bp_level = 0.0f32;
+            }
+            else if bp_max <= 0 {
+                bp_level = 0.0f32;
+            }
+            else {
+                bp_level = 0.05f32 + 0.95f32 * (bass_index as i32 - low_bin as i32) as f32 / bp_max as f32;
             }
 
             // Will not block
-            let _ = self.bpio_sender.try_send(bass_index as f32 / 5.0f32);
+            let _ = self.bpio_sender.try_send( bp_level );
 
             self.current_fft.store(0, atomic::Ordering::Relaxed);
         }
