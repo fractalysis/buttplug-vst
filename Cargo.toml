@@ -15,6 +15,7 @@ tokio-tungstenite = "*"
 url = "*"
 tokio-timer = "*"
 rustfft = "*"
+dirs = "*"
 baseplug = { git = "https://github.com/wrl/baseplug.git", package = "baseplug" }
 
 [lib]

@@ -48,7 +48,7 @@ impl Default for ButtplugModel {
             // "bass_cutoff" is converted from dB to coefficient in the parameter handling code,
             // so in the model here it's a coeff.
             // -0dB == 1.0
-            bass_cutoff: 0.5f32,
+            bass_cutoff: 0.8f32,
             low_freq: 20.0f32,
             high_freq: 60.0f32,
         }
@@ -132,13 +132,13 @@ impl Plugin for ButtplugMonitor {
             // Way too much code just to put the vibration intensity into (0, 1) with 0.05 being lowest
             let bp_max = high_bin as i32 - low_bin as i32;
             let bp_level;
-            if bass_amplitude / max_amplitude < 0.5f32 { // Silence the bass if it is too relatively quiet
+            if bass_amplitude / max_amplitude < model.bass_cutoff[ctx.nframes-1] { // Silence the bass if it is too relatively quiet
                 bp_level = 0.0f32;
             }
-            else if (bass_index as i32 - low_bin as i32) < 0 {
+            else if bass_index < low_bin { // Silence if the bass is too quiet
                 bp_level = 0.0f32;
             }
-            else if bp_max <= 0 {
+            else if bp_max <= 0 { // Silence if there are no bass bins
                 bp_level = 0.0f32;
             }
             else {

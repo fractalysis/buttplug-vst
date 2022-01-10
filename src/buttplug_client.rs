@@ -18,6 +18,7 @@ use log4rs::{
     config::{Appender, Config, Root},
     encode::pattern::PatternEncoder,
 };
+use dirs;
 use std::sync::Arc;
 use tokio::{self, runtime::Runtime, sync::mpsc, sync::mpsc::error::TryRecvError, time};
 
@@ -28,13 +29,16 @@ use url::Url;
 
 pub fn start_buttplug_thread(send_rate: f32) -> Result<(Runtime, mpsc::Sender<f32>), ()> {
     //Enable logging
+    let mut logpath = dirs::data_dir().unwrap();
+    logpath.push("Buttplug Monitor");
+    logpath.push("buttplug_monitor.log");
     let logfile = match FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
-        .build("E:/Users/facade/Documents/VSTs/logs/buttplug_monitor.log")
+        .build(logpath )
     {
         Ok(logfile) => logfile,
         Err(e) => {
-            log::info!("{}", e);
+            log::warn!("{}", e); // Nothing really else to do
             return Err(());
         }
     };
@@ -44,20 +48,20 @@ pub fn start_buttplug_thread(send_rate: f32) -> Result<(Runtime, mpsc::Sender<f3
     {
         Ok(c) => c,
         Err(e) => {
-            log::info!("{}", e);
+            log::warn!("{}", e);
             return Err(());
         }
     };
     let _ = log4rs::init_config(config);
-    log::info!("Logging enabled"); // For some reason this runs 4 times with baseplug
+    log::debug!("Logging enabled"); // For some reason this runs 4 times with baseplug
 
-    let buffer_size = (100.0 / send_rate) as usize; // Should be big enough
+    let buffer_size = (100.0 / send_rate) as usize; // Should be big enough, might break with larger block sizes / sample rates
     let (sender, receiver): (mpsc::Sender<f32>, mpsc::Receiver<f32>) = mpsc::channel(buffer_size);
 
     let tkrt = match Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
-            log::info!("{}", e);
+            log::warn!("{}", e);
             return Err(());
         }
     };
@@ -66,7 +70,7 @@ pub fn start_buttplug_thread(send_rate: f32) -> Result<(Runtime, mpsc::Sender<f3
         buttplug_thread(receiver, send_rate).await;
         //websocket_test_thread().await;
     });
-    log::info!("Buttplug thread spawned.");
+    log::debug!("Buttplug thread spawned.");
 
     Ok((tkrt, sender))
 }
@@ -99,17 +103,16 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32) {
         "ws://127.0.0.1:12345",
     ));
     let client = ButtplugClient::new("Buttplug VST Client");
-    log::info!("Starting Buttplug connection thread...");
+    log::debug!("Starting Buttplug connection thread...");
 
     if let Err(e) = client.connect(connector).await {
-        // PANICS?
-        log::info!("Error connecting to Buttplug server: {}", e);
+        log::warn!("Error connecting to Buttplug server: {}", e);
         return;
     }
-    log::info!("Connected: {}", client.connected());
+    log::info!("Connected to intiface ({})", client.connected());
 
     if let Err(err) = client.start_scanning().await {
-        log::info!("Client errored when starting device scan: {}", err);
+        log::warn!("Client errored when starting device scan: {}", err);
         return;
     }
 
@@ -160,11 +163,11 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32) {
                         },
 
                         _ => {
-                            log::info!("Intiface event: {:?}", event);
+                            log::debug!("Intiface event: {:?}", event);
                         }
                     }
                     None => {
-                        log::info!("Server disconnected ungracefully");
+                        log::warn!("Intiface server disconnected ungracefully");
                         break;
                     }
                 }
@@ -177,7 +180,7 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32) {
                     Ok(msg) => {
                         if let Some(dev) = &device {
                             if let Err(e) = dev.vibrate(VibrateCommand::Speed(f64::from(msg))).await {
-                                log::info!("Error sending vibrate command: {}", e);
+                                log::warn!("Error sending vibrate command: {}", e);
                             }
                         }
                     }
