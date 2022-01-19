@@ -37,4 +37,4 @@ To help with finding all the bugs in this plugin, it needs to be run in a variet
 
 ## Credits
 
-This could not have existed without [baseplug](https://github.com/wrl/baseplug) and the extremely well made [buttplug.io](buttplug.io), so if you want to see more software like this in the future consider contributing to them.
+This could not have existed without [baseplug](https://github.com/wrl/baseplug) and the extremely well made [buttplug.io](https://buttplug.io), so if you want to see more software like this in the future consider contributing to them.
