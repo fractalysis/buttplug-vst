@@ -1,5 +1,13 @@
+## What is this?
+
+A VST2 plugin for DAWs like Ableton and FL Studio, or DJ software like VirtualDJ that vibrates compatible bluetooth toys (e.g. Lovense Hush) whenever the plugin detects bass in the audio.
+
+For checking the levels on the subbass when your roommates are asleep, making sure the bass is still on in the booth mix, or just kinda havin a good time 🥴
+
 
 ## Running
+
+[DOWNLOAD HERE](https://github.com/fractalysis/buttplug-vst/releases/)
 
 This VST is assuming there is some kind of Intiface server already running, so install https://intiface.com/desktop/ first, and make sure the server is running. Once you open the plugin, any toys in range should automatically connect, but the behaviour might be unpredictable if there is more than one toy or if the toy doesn't vibrate.
 
@@ -29,4 +37,4 @@ To help with finding all the bugs in this plugin, it needs to be run in a variet
 
 ## Credits
 
-This could not have existed without [baseplug](https://github.com/wrl/baseplug) and the extremely well made buttplug.io, so if you want to see more software like this in the future consider contributing to them.
+This could not have existed without [baseplug](https://github.com/wrl/baseplug) and the extremely well made [buttplug.io](buttplug.io), so if you want to see more software like this in the future consider contributing to them.
