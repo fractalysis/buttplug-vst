@@ -171,19 +171,27 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32) {
                         break;
                     }
                 }
-
             }
 
             // A timer event that receives audio
             _ = audio_interval.tick() => {
                 match receiver.try_recv() {
+//                    Ok(msg) => {
+//                        if let Some(dev) = &device {
+//                            if let Err(e) = dev.vibrate(VibrateCommand::Speed(f64::from(msg))).await {
+//                                log::warn!("Error sending vibrate command: {}", e);
+//                            }
+//                        }
+//                    }
                     Ok(msg) => {
-                        if let Some(dev) = &device {
-                            if let Err(e) = dev.vibrate(VibrateCommand::Speed(f64::from(msg))).await {
-                                log::warn!("Error sending vibrate command: {}", e);
+                        for dev in client.devices() {
+                            if dev.allowed_messages.contains_key(&ButtplugClientDeviceMessageType::VibrateCmd) {
+                                if let Err(e) = dev.vibrate(VibrateCommand::Speed(f64::from(msg))).await {
+                                    log::warn!("Error sending vibrate command: {}", e);
+                                }
                             }
                         }
-                    }
+                    }                    
                     Err(e) => {
                         if e == TryRecvError::Empty {
                             //log::info!("Sound queue was empty, continuing");
