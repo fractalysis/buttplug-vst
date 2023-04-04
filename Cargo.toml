@@ -1,21 +1,21 @@
 [package]
 name = "buttplug_monitor"
 version = "0.1.0"
-edition = "2018"
+edition = "2021"
 authors = ["Fraccy (ssh)"]
 
 [dependencies]
-serde = {version = "^1.0.130", default-features = false}
-buttplug = "^5.1.2"
-tokio = "^1.14.0"
-futures = "^0.3.18"
-log = "^0.4.14"
-log4rs = "^1.0.0"
-tokio-tungstenite = "*"
-url = "*"
-tokio-timer = "*"
-rustfft = "*"
-dirs = "*"
+serde = {version = "^1.0.159", default-features = false}
+buttplug = "^7.0.2"
+tokio = "^1.27.0"
+futures = "^0.3.28"
+log = "^0.4.17"
+log4rs = "^1.2.0"
+tokio-tungstenite = "^0.18.0"
+url = "^2.3.1"
+tokio-timer = "^0.2.13"
+rustfft = "^6.1.0" 
+dirs = "^5.0.0"
 baseplug = { git = "https://github.com/wrl/baseplug.git", package = "baseplug" }
 
 [lib]

@@ -1,0 +1,72 @@
+name: Build
+
+on:
+  push:
+    ignore-tags:
+      - "**"
+    paths:
+      - .github/workflows/**.yml
+      - src/**
+      - Cargo.lock
+      - Cargo.toml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: "${{ matrix.os }}"
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            suffix: .dylib
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            suffix: .so
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            suffix: .dll
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3.5.0
+
+      - uses: actions/cache@v3.3.1
+        with:
+          path: ~/.cargo/registry
+          key: "${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}"
+
+      - uses: actions/cache@v3.3.1
+        with:
+          path: ~/.cargo/git
+          key: "${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}"
+
+      - uses: actions/cache@v3.3.1
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install rust nightly
+        uses: actions-rs/toolchain@v1.0.6
+        with:
+          profile: minimal
+          toolchain: nightly
+          override: true
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get install libdbus-1-dev pkg-config libudev-dev
+
+      - name: Build
+        run: cargo +nightly build --release
+      
+      - name: Get short commit SHA
+        id: short-sha
+        shell: bash
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: ${{ github.event.repository.name  }}-${{ steps.short-sha.outputs.SHORT_SHA }}-${{ matrix.target }}
+          path: ./target/release/*buttplug_monitor${{ matrix.suffix }}
