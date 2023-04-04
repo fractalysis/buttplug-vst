@@ -177,9 +177,11 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32) {
             _ = audio_interval.tick() => {
                 match receiver.try_recv() {
                     Ok(msg) => {
-                        if let Some(dev) = &device {
-                            if let Err(e) = dev.vibrate(&ScalarValueCommand::ScalarValue(msg.into())).await {
-                                log::warn!("Error sending vibrate command: {}", e);
+                        for dev in client.devices() {
+                            if dev.message_attributes().message_allowed(&ButtplugDeviceMessageType::VibrateCmd) {
+                                if let Err(e) = dev.vibrate(&ScalarValueCommand::ScalarValue(msg.into())).await {
+                                    log::warn!("Error sending vibrate command: {}", e);
+                                }
                             }
                         }
                     }
