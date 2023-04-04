@@ -49,7 +49,7 @@ jobs:
         run: sudo apt-get install libdbus-1-dev pkg-config libudev-dev
 
       - name: Build
-        run: cargo +nightly build --release --target=${{ matrix.target }} --verbose
+        run: cargo +nightly build --release --target=${{ matrix.target }}
 
       - name: Bundle macOS VST
         shell: bash
