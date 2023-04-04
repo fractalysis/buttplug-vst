@@ -4,13 +4,13 @@
 extern crate buttplug;
 
 use buttplug::{
-    client::{
-        ButtplugClient, ButtplugClientDevice, ButtplugClientDeviceMessageType, ButtplugClientEvent,
-        VibrateCommand,
+    client::{ButtplugClient, ButtplugClientDevice, ButtplugClientEvent, ScalarValueCommand},
+    core::{
+        connector::{ButtplugRemoteClientConnector, ButtplugWebsocketClientTransport},
+        message::{serializer::ButtplugClientJSONSerializer, ButtplugDeviceMessageType},
     },
-    connector::{ButtplugRemoteClientConnector, ButtplugWebsocketClientTransport},
-    core::messages::serializer::ButtplugClientJSONSerializer,
 };
+use dirs;
 use futures::StreamExt;
 use log::LevelFilter;
 use log4rs::{
@@ -18,7 +18,6 @@ use log4rs::{
     config::{Appender, Config, Root},
     encode::pattern::PatternEncoder,
 };
-use dirs;
 use std::sync::Arc;
 use tokio::{self, runtime::Runtime, sync::mpsc, sync::mpsc::error::TryRecvError, time};
 
@@ -34,7 +33,7 @@ pub fn start_buttplug_thread(send_rate: f32) -> Result<(Runtime, mpsc::Sender<f3
     logpath.push("buttplug_monitor.log");
     let logfile = match FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} - {m}{n}")))
-        .build(logpath )
+        .build(logpath)
     {
         Ok(logfile) => logfile,
         Err(e) => {
@@ -119,7 +118,7 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32) {
     //Store the latest device here, assume it vibrates, None if there are no devices connected
     let mut device: Option<Arc<ButtplugClientDevice>> = None;
     for d in client.devices().iter() {
-        log::info!("Device found: {}", d.name);
+        log::info!("Device found: {}", d.name());
         device = Some(d.clone());
     }
 
@@ -142,19 +141,19 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32) {
                         },
 
                         ButtplugClientEvent::DeviceAdded(d) => {
-                            if d.allowed_messages
-                                .contains_key(&ButtplugClientDeviceMessageType::VibrateCmd)
+                            if d.message_attributes().message_allowed(&ButtplugDeviceMessageType::VibrateCmd)
                             {
-                                log::info!("Vibrating device added: {}", d.name);
-                                device = Some(d.clone());
+                                    log::info!("Vibrating device added: {}", d.name());
+                                    device = Some(d.clone());
+
                             }
                             else{
-                                log::info!("Non-vibrating device added, ignoring: {}", d.name);
+                                log::info!("Non-vibrating device added, ignoring: {}", d.name());
                             }
                         },
 
                         ButtplugClientEvent::DeviceRemoved(d) => {
-                            log::info!("Device removed: {}", d.name);
+                            log::info!("Device removed: {}", d.name());
                             if let Some(dev) = &device {
                                 if d == *dev {
                                     device = None;
@@ -178,9 +177,11 @@ async fn buttplug_thread(mut receiver: mpsc::Receiver<f32>, send_rate: f32) {
             _ = audio_interval.tick() => {
                 match receiver.try_recv() {
                     Ok(msg) => {
-                        if let Some(dev) = &device {
-                            if let Err(e) = dev.vibrate(VibrateCommand::Speed(f64::from(msg))).await {
-                                log::warn!("Error sending vibrate command: {}", e);
+                        for dev in client.devices() {
+                            if dev.message_attributes().message_allowed(&ButtplugDeviceMessageType::VibrateCmd) {
+                                if let Err(e) = dev.vibrate(&ScalarValueCommand::ScalarValue(msg.into())).await {
+                                    log::warn!("Error sending vibrate command: {}", e);
+                                }
                             }
                         }
                     }

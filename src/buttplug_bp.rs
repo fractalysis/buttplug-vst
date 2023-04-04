@@ -1,5 +1,4 @@
 #![allow(incomplete_features)]
-#![feature(generic_associated_types)]
 //#![feature(async_closure)]
 //#![no_std]
 
@@ -7,11 +6,11 @@ extern crate baseplug;
 extern crate buttplug;
 extern crate serde;
 
-use std::sync::atomic;
 use baseplug::{Plugin, ProcessContext};
+use rustfft::{num_complex::Complex32, FftPlanner};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic;
 use tokio::{self, runtime::Runtime, sync::mpsc};
-use rustfft::{FftPlanner, num_complex::Complex32};
 
 const FFT_SIZE: usize = 4096;
 //const MAX_CHANNELS: usize = 2;
@@ -97,11 +96,13 @@ impl Plugin for ButtplugMonitor {
         // If the complex buffer will be overfilled after this, do the FFT
         if self.current_fft.load(atomic::Ordering::Relaxed) + ctx.nframes > FFT_SIZE {
             // v Give this a scratch buffer so it doesn't have to reallocate every time
-            FftPlanner::new().plan_fft_forward(FFT_SIZE).process(&mut self.fft_buffer);
+            FftPlanner::new()
+                .plan_fft_forward(FFT_SIZE)
+                .process(&mut self.fft_buffer);
 
             // Get the bins we're interested in
-            let low_freq = model.low_freq[ctx.nframes-1];
-            let high_freq = model.high_freq[ctx.nframes-1];
+            let low_freq = model.low_freq[ctx.nframes - 1];
+            let high_freq = model.high_freq[ctx.nframes - 1];
             let low_bin = (low_freq / ctx.sample_rate * FFT_SIZE as f32).round() as usize;
             let high_bin = (high_freq / ctx.sample_rate * FFT_SIZE as f32).round() as usize;
 
@@ -109,7 +110,7 @@ impl Plugin for ButtplugMonitor {
 
             // Get the highest amplitude so we can normalize the FFT
             let mut max_amplitude = 0.0f32;
-            for i in 1..FFT_SIZE/2 {
+            for i in 1..FFT_SIZE / 2 {
                 let amplitude = self.fft_buffer[i].norm();
                 if amplitude > max_amplitude {
                     max_amplitude = amplitude;
@@ -128,25 +129,26 @@ impl Plugin for ButtplugMonitor {
             }
 
             //log::info!("Max amplitude: {} at {}", max_amplitude / ctx.nframes, max_index);
-            
+
             // Way too much code just to put the vibration intensity into (0, 1) with 0.05 being lowest
             let bp_max = high_bin as i32 - low_bin as i32;
             let bp_level;
-            if bass_amplitude / max_amplitude < model.bass_cutoff[ctx.nframes-1] { // Silence the bass if it is too relatively quiet
+            if bass_amplitude / max_amplitude < model.bass_cutoff[ctx.nframes - 1] {
+                // Silence the bass if it is too relatively quiet
                 bp_level = 0.0f32;
-            }
-            else if bass_index < low_bin { // Silence if the bass is too quiet
+            } else if bass_index < low_bin {
+                // Silence if the bass is too quiet
                 bp_level = 0.0f32;
-            }
-            else if bp_max <= 0 { // Silence if there are no bass bins
+            } else if bp_max <= 0 {
+                // Silence if there are no bass bins
                 bp_level = 0.0f32;
-            }
-            else {
-                bp_level = 0.05f32 + 0.95f32 * (bass_index as i32 - low_bin as i32) as f32 / bp_max as f32;
+            } else {
+                bp_level =
+                    0.05f32 + 0.95f32 * (bass_index as i32 - low_bin as i32) as f32 / bp_max as f32;
             }
 
             // Will not block
-            let _ = self.bpio_sender.try_send( bp_level );
+            let _ = self.bpio_sender.try_send(bp_level);
 
             self.current_fft.store(0, atomic::Ordering::Relaxed);
         }
@@ -164,11 +166,11 @@ impl Plugin for ButtplugMonitor {
         }
 
         // Increment the current FFT index
-        self.current_fft.fetch_add(ctx.nframes, atomic::Ordering::Relaxed);
+        self.current_fft
+            .fetch_add(ctx.nframes, atomic::Ordering::Relaxed);
 
         //let fft_index = self.current_fft.load(atomic::Ordering::Relaxed);
         //log::info!("FFT index: {}, should've written {} samples", fft_index, ctx.nframes);
-        
     }
 }
 

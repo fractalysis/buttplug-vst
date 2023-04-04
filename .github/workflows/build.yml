@@ -1,0 +1,70 @@
+name: Build
+
+env:
+  CARGO_TERM_COLOR: always
+
+on:
+  push:
+    ignore-tags:
+      - "**"
+    paths:
+      - .github/workflows/**.yml
+      - src/**
+      - Cargo.lock
+      - Cargo.toml
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: "${{ matrix.os }}"
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            extension: .vst
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            extension: .so
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            extension: .dll
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3.5.0
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2.2.1
+        with:
+          prefix-key: ${{ runner.os }}
+
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --profile minimal
+          rustup default nightly
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get install libdbus-1-dev pkg-config libudev-dev
+
+      - name: Build
+        run: cargo +nightly build --release --target=${{ matrix.target }}
+
+      - name: Bundle macOS VST
+        shell: bash
+        if: runner.os == 'macOS'
+        run: |
+          ${{ github.workspace }}/scripts/macos_bundler.sh buttplug_monitor ${{ github.workspace }}/target/${{ matrix.target }}/release/libbuttplug_monitor.dylib
+          mv ${{ github.workspace }}/buttplug_monitor.vst ${{ github.workspace }}/target/${{ matrix.target }}/release/buttplug_monitor.vst # just so we don't have to make the next step conditional
+
+      - name: Get short commit SHA
+        id: short-sha
+        shell: bash
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3.1.2
+        with:
+          name: ${{ github.event.repository.name  }}-${{ steps.short-sha.outputs.SHORT_SHA }}-${{ matrix.target }}
+          path: ${{ github.workspace }}/target/${{ matrix.target }}/release/*buttplug_monitor${{ matrix.extension }}
