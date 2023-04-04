@@ -1,5 +1,8 @@
 name: Build
 
+env:
+  CARGO_TERM_COLOR: always
+
 on:
   push:
     ignore-tags:
@@ -19,47 +22,43 @@ jobs:
         include:
           - os: macos-latest
             target: x86_64-apple-darwin
-            suffix: .dylib
+            extension: .vst
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            suffix: .so
+            extension: .so
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            suffix: .dll
+            extension: .dll
 
     steps:
       - name: Checkout
         uses: actions/checkout@v3.5.0
 
-      - uses: actions/cache@v3.3.1
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2.2.1
         with:
-          path: ~/.cargo/registry
-          key: "${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}"
+          prefix-key: ${{ runner.os }}
 
-      - uses: actions/cache@v3.3.1
-        with:
-          path: ~/.cargo/git
-          key: "${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}"
-
-      - uses: actions/cache@v3.3.1
-        with:
-          path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Install rust nightly
-        uses: actions-rs/toolchain@v1.0.6
-        with:
-          profile: minimal
-          toolchain: nightly
-          override: true
+      - name: Install Rust nightly
+        run: |
+          rustup toolchain install nightly --profile minimal
+          rustup default nightly
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get install libdbus-1-dev pkg-config libudev-dev
 
       - name: Build
-        run: cargo +nightly build --release
-      
+        run: cargo +nightly build --release --target=${{ matrix.target }} --verbose
+
+      - name: Bundle macOS VST
+        shell: bash
+        if: runner.os == 'macOS'
+        run: |
+          ${{ github.workspace }}/scripts/macos_bundler.sh buttplug_monitor ${{ github.workspace }}/target/${{ matrix.target }}/release/libbuttplug_monitor.dylib
+          mkdir ${{ github.workspace }}/target/${{ matrix.target }}/release/buttplug_monitor.vst
+          mv ${{ github.workspace }}/buttplug_monitor.vst ${{ github.workspace }}/target/${{ matrix.target }}/release/buttplug_monitor.vst/buttplug_monitor.vst # just so we don't have to make the next step conditional
+
       - name: Get short commit SHA
         id: short-sha
         shell: bash
@@ -69,4 +68,4 @@ jobs:
         uses: actions/upload-artifact@v3.1.2
         with:
           name: ${{ github.event.repository.name  }}-${{ steps.short-sha.outputs.SHORT_SHA }}-${{ matrix.target }}
-          path: ./target/release/*buttplug_monitor${{ matrix.suffix }}
+          path: ${{ github.workspace }}/target/${{ matrix.target }}/release/*buttplug_monitor${{ matrix.extension }}
