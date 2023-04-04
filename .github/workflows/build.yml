@@ -56,8 +56,7 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           ${{ github.workspace }}/scripts/macos_bundler.sh buttplug_monitor ${{ github.workspace }}/target/${{ matrix.target }}/release/libbuttplug_monitor.dylib
-          mkdir ${{ github.workspace }}/target/${{ matrix.target }}/release/buttplug_monitor.vst
-          mv ${{ github.workspace }}/buttplug_monitor.vst ${{ github.workspace }}/target/${{ matrix.target }}/release/buttplug_monitor.vst/buttplug_monitor.vst # just so we don't have to make the next step conditional
+          mv ${{ github.workspace }}/buttplug_monitor.vst ${{ github.workspace }}/target/${{ matrix.target }}/release/buttplug_monitor.vst # just so we don't have to make the next step conditional
 
       - name: Get short commit SHA
         id: short-sha
